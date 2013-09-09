@@ -1,8 +1,15 @@
 #! /usr/bin/env ruby
+# TODO:
+# curl -> nethttp
+# handle http error codes
+
 require "pathname"
 require "optparse"
 require "rss"
 require "rexml/document"
+
+$LOAD_PATH.unshift File.expand_path("../lib/rubytapas-dl", __FILE__)
+require "episode"
 
 options = {
   recent: false
@@ -74,28 +81,14 @@ def fetch_feed
     feed_url
 end
 
-def download_url(href, filename)
-  id = href[/file_id=(\d+)/, 1]
-  "https://rubytapas.dpdcart.com/feed/download/#{id}/#{filename}"
-end
-
 def feed_episodes
   RSS::Parser.parse(fetch_feed).items
 end
 
-def episode_links(text)
-  doc = REXML::Document.new(text)
-  REXML::XPath.each(doc, "//a[contains(@href, 'subscriber/download?file_id')]").map do |a|
-    [a.attribute("href").to_s, a.text]
-  end
-end
-
 feed_episodes.each do |item|
-  name = item.title
-  ep_number = name.split.first.to_i
-  dir_name = "%04d" % ep_number
+  episode = Episode.new(item)
 
-  target_dir = $target_path.join(dir_name)
+  target_dir = $target_path.join(episode.directory_name)
 
   target_dir.mkdir unless target_dir.exist?
   unless target_dir.directory?
@@ -103,15 +96,15 @@ feed_episodes.each do |item|
     next
   end
 
-  episode_links(item.description).each do |(url, filename)|
-    target_file = target_dir.join(filename)
+  episode.files.each do |link|
+    target_file = target_dir.join(link.filename)
     if target_file.exist?
       if options[:recent]
-        warn "#{filename} already downloaded, stopping"
+        warn "#{link.filename} already downloaded, stopping"
         puts "Done updating."
         exit
       else
-        warn "#{filename} already downloaded, skipping"
+        warn "#{link.filename} already downloaded, skipping"
         next
       end
     end
@@ -120,6 +113,6 @@ feed_episodes.each do |item|
       "-u", username_and_password,
       "-o", target_file.to_path,
       "-L",
-      download_url(url, filename)
+      link.download_url
   end
 end
